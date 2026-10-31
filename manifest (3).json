@@ -1,0 +1,27 @@
+{
+  "background_color": "#ffffff",
+  "description": "Accessible Audio Car Racing Game by Gokul",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "Gokul Race",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "Gokul Race",
+  "start_url": "/",
+  "theme_color": "#ffcc00",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;rect width='100' height='100' fill='%23111' rx='20'/&gt;&lt;path d='M25 65 L35 35 L65 35 L75 65 Z' fill='%23ffcc00'/&gt;&lt;circle cx='35' cy='68' r='8' fill='%23fff'/&gt;&lt;circle cx='65' cy='68' r='8' fill='%23fff'/&gt;&lt;/svg&gt;",
+      "type": "image/svg+xml",
+      "isSquare": false,
+      "isPng": false,
+      "isWebp": false,
+      "isJpg": false,
+      "width": 0,
+      "is512x512": false,
+      "is256x256": false,
+      "is192x192": false
+    }
+  ],
+  "id": "gokul-race-app"
+}
