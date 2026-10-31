@@ -3,6 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gokul Race</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body {
+            margin: 0; padding: 16px; background-color: #111; color: #fff;
+            font-family: sans-serif; display: flex; flex-direction: column;
+            align-items: center; justify-content: space-between; min-height: 100vh;
+        }
+        h1 { color: #ffcc00; margin: 5px 0; }
+        #status { font-size: 20px; font-weight: bold; color: #00ffcc; min-height: 30px; }
+        #score-board { font-size: 18px; margin-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; max-width: 400px; }
+        button { border: none; border-radius: 12px; font-weight: bold; cursor: pointer; }
+        .main-btn { background: #ffcc00; color: #000; font-size: 24px; padding: 18px; width: 100%; max-width: 400px; margin-bottom: 15px; }
+        .steer-btn { background: #2c3e50; color: #fff; font-size: 22px; padding: 25px 10px; }
+        .action-btn { background: #e74c3c; color: #fff; font-size: 20px; padding: 20px 10px; }
+        .accel-btn { background: #27ae60; color: #fff; font-size: 20px; padding: 20px 10px; }
+    </style>
+</head>
+<body>
+    <header style="text-align: center;">
+        <h1>गोकुळ रेस</h1>
+        <div id="status">गेम सुरू करण्यासाठी खालील बटण दाबा</div>
+        <div id="score-board">स्कोअर: <span id="score">0</span> | लेन: <span id="current-lane">मध्यम</span></div>
+    </header>
+
+    <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+        <button id="start-btn" class="main-btn" onclick="toggleGame()">गेम सुरू करा</button>
+        <div class="grid">
+            <button class="steer-btn" onclick="steerLeft()">⬅️ डावीकडे</button>
+            <button class="steer-btn" onclick="steerRight()">उजवीकडे ➡️</button>
+            <button class="action-btn" onclick="applyBrake()">🛑 ब्रेक</button>
+            <button class="accel-btn" onclick="accelerateCar()">⚡ रेस द्या</button>
+        </div>
+    </div>
+
+    <script>
+        let audioCtx = null, engineGain = null, engineOsc = null;
+        let isPlaying = false, score = 0, playerLane = 0, obstacleLane = 0;
+        let gameLoopTimer = null, obstacleTimer = null;
+        const lanes = ["डावी", "मध्यम", "उजवी"];
+
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utter = new SpeechSynthesisUtterance(text);
+                utter.lang = 'mr-IN';
+                utter.rate = 1.1;
+                window.speechSynthesis.speak(utter);
+            }
+        }
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function startEngineSound() {
+            engineOsc = audioCtx.createOscillator();
+            engineGain = audioCtx.createGain();
+            engineOsc.type = 'sawtooth';
+            engineOsc.frequency.setValueAtTime(65, audioCtx.currentTime);
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(250, audioCtx.currentTime);
+            engineGain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            engineOsc.connect(filter);
+            filter.connect(engineGain);
+            engineGain.connect(audioCtx.destination);
+            engineOsc.start();
+        }
+
+        function playBrakeSound() {
+            if (!audioCtx) return;
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+            if (navigator.vibrate) navigator.vibrate(80);
+        }
+
+        function playHornSound(panValue) {
+            if (!audioCtx) return;
+            const panner = audioCtx.createStereoPanner ? audioCtx.createStereoPanner() : null;
+            const osc1 = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc1.type = 'sawtooth';
+            osc1.frequency.setValueAtTime(450, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            if (panner) {
+                panner.pan.setValueAtTime(panValue, audioCtx.currentTime);
+                osc1.connect(panner);
+                panner.connect(gain);
+            } else {
+                osc1.connect(gain);
+            }
+            gain.connect(audioCtx.destination);
+            osc1.start();
+            osc1.stop(audioCtx.currentTime + 0.5);
+        }
+
+        function toggleGame() {
+            initAudio();
+            const btn = document.getElementById('start-btn');
+            if (!isPlaying) {
+                isPlaying = true; score = 0; playerLane = 0; updateDisplay();
+                btn.textContent = "गेम थांबवा";
+                speak("रेसिंग सुरू झाली!");
+                startEngineSound();
+                scheduleNextObstacle();
+                gameLoopTimer = setInterval(() => {
+                    if (!isPlaying) return;
+                    score += 1;
+                    document.getElementById('score').textContent = score;
+                }, 1000);
+            } else {
+                stopGame("गेम थांबवला");
+            }
+        }
+
+        function scheduleNextObstacle() {
+            if (!isPlaying) return;
+            obstacleTimer = setTimeout(() => {
+                if (!isPlaying) return;
+                spawnObstacle();
+            }, 3000);
+        }
+
+        function spawnObstacle() {
+            const laneChoices = [-1, 0, 1];
+            obstacleLane = laneChoices[Math.floor(Math.random() * laneChoices.length)];
+            let voiceMsg = "", pan = 0;
+            if (obstacleLane === -1) { voiceMsg = "गाडी डावीकडून येत आहे, उजवीकडे वळा!"; pan = -0.9; }
+            else if (obstacleLane === 1) { voiceMsg = "गाडी उजवीकडून येत आहे, डावीकडे वळा!"; pan = 0.9; }
+            else { voiceMsg = "गाडी समोरून येत आहे, बाजूला व्हा!"; pan = 0; }
+            speak(voiceMsg);
+            playHornSound(pan);
+            setTimeout(() => {
+                if (!isPlaying) return;
+                if (playerLane === obstacleLane) {
+                    crash();
+                } else {
+                    speak("छान वाचलात!");
+                    scheduleNextObstacle();
+                }
+            }, 2000);
+        }
+
+        function steerLeft() {
+            if (!isPlaying) return;
+            if (playerLane > -1) {
+                playerLane--; updateDisplay(); speak(lanes[playerLane + 1]);
+            } else { speak("रस्त्याचा शेवट!"); }
+        }
+
+        function steerRight() {
+            if (!isPlaying) return;
+            if (playerLane < 1) {
+                playerLane++; updateDisplay(); speak(lanes[playerLane + 1]);
+            } else { speak("रस्त्याचा शेवट!"); }
+        }
+
+        function applyBrake() {
+            if (!isPlaying) return;
+            playBrakeSound(); speak("ब्रेक!");
+        }
+
+        function accelerateCar() {
+            if (!isPlaying) return;
+            if (engineOsc) {
+                engineOsc.frequency.setValueAtTime(100, audioCtx.currentTime);
+                setTimeout(() => { if (engineOsc) engineOsc.frequency.setValueAtTime(65, audioCtx.currentTime); }, 400);
+            }
+            speak("रेसिंग!");
+        }
+
+        function updateDisplay() {
+            document.getElementById('current-lane').textContent = lanes[playerLane + 1];
+        }
+
+        function crash() {
+            if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+            speak("अपघात झाला! गेम संपला.");
+            stopGame("गाडी धडकली!");
+        }
+
+        function stopGame(msg) {
+            isPlaying = false;
+            clearTimeout(obstacleTimer);
+            clearInterval(gameLoopTimer);
+            if (engineOsc) { try { engineOsc.stop(); } catch(e){} engineOsc = null; }
+            document.getElementById('status').textContent = msg;
+            document.getElementById('start-btn').textContent = "पुन्हा खेळा";
+        }
+    </script>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gokul Race - Accessible Audio Racing Game</title>
     <style>
         * {
